@@ -1,0 +1,23 @@
+{{- if and .Values.persistence.enabled .Values.persistence.pv.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "gnis.fullname" . }}-pv
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  capacity:
+    storage: {{ .Values.persistence.storage }}
+  csi:
+    driver: {{ .Values.persistence.pv.csi.driver }}
+    nodeStageSecretRef:
+      name: {{ .Values.persistence.pv.csi.nodeStageSecretRef.name }}
+      namespace: {{ .Values.persistence.pv.csi.nodeStageSecretRef.namespace }}
+    volumeAttributes:
+      {{- toYaml .Values.persistence.pv.csi.volumeAttributes | nindent 6 }}
+    volumeHandle: {{ include "gnis.fullname" . }}-pv
+  persistentVolumeReclaimPolicy: {{ .Values.persistence.pv.reclaimPolicy }}
+  volumeMode: Filesystem
+{{- end }}

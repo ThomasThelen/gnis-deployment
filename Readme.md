@@ -4,34 +4,33 @@
 - [**Submit Bugs and feature requests**](https://github.com/DataONEorg/gnis-deployment/issues)
 
 
-Kubernetes deployment files for the gnis-ld.org project.
+Helm chart for deploying the gnis-ld project to Kubernetes.
 
 ## Architecture
 
-The deployment takes place as a single deployment with a single pod, which in turn contains a container for each stack component. For example, there's a container for the triplifier, for the webapp, etc. The webapp is the only pod that communicates with the outside world and has it's port mapping specified in the gnis-service.yaml file. The other containers (triplifier, postgis, GraphDBB) communicate though `localhost` instead of services _because they're in the same pod_.
+The deployment takes place as a single deployment with a single pod, which in turn contains a container for each stack component. For example, there's a container for the triplifier, for the webapp, etc. The webapp is the only pod that communicates with the outside world and has it's port mapping specified in the gnis-service.yaml file. The other containers (triplifier, GraphDB) communicate though `localhost` instead of services _because they're in the same pod_.
 
 Because all of the containers exist in the same pod, each container can be accessed from another with `localhost:port`. For example, the webapp gnis-ld can communicate with GraphDB via `localhost:7200`. This is opposed to a service based communication model, which would be appropriate if the containers were in separate pods. This is exploited in the reverse proxy logic in the webapp, where GraphDB is contacted from the webapp.
 
 ## Deployment
 
-To deploy the gnis deployment, first check to see if there's a valid PVC. From the `gnis` namespace, run
+To install the chart (creating the `gnis` namespace if it doesn't exist),
 
-`kubectl get pvc`
+`helm install gnis helm/ -n gnis --create-namespace`
 
-If the PVC exists, there should be a roq entry with State 'Bound'.
+By default the chart creates the static CephFS PersistentVolume and its PersistentVolumeClaim. Creating a PV is a cluster-admin operation; if you are installing as a non-admin user, have an administrator pre-create the PV/PVC and point the chart at the existing claim instead:
 
+`helm install gnis helm/ -n gnis --set persistence.pv.enabled=false --set persistence.existingClaim=cephfs-gnis-pvc`
 
-If there isn't, create the Persistent Volume (PV) and the Volume Claim (PVC). The PV needs to be created first and with the Kubernetes administrator account in the default namespace. The PVC needs to be created with the `gnis` user in the `gnis` namespace.
+To check for a valid PVC before installing, run `kubectl get pvc -n gnis` — a bound claim shows State 'Bound'.
 
-Once the PV & PVC exist create the deployment,
+Common configuration lives in [helm/values.yaml](helm/values.yaml): the public hostname (`host`), container images, env vars, ingress/TLS settings, and the quarterly graph-update CronJob (`updateCronJob.enabled`, off by default).
 
-`kubectl apply -f deployment/gnis-deployment.yaml`
+To apply configuration changes,
 
-To create the service to expose the webapp,
+`helm upgrade gnis helm/ -n gnis`
 
-`kubectl apply -f networking/gnis-service.yaml`
-
-To perform a rolling update run,
+To perform a rolling update (this also re-runs the triplifier's graph update),
 
  `kubectl rollout restart deployment gnis`
 
@@ -62,14 +61,14 @@ For debugging networking, the following are useful
 
 `kubectl describe service/gnis -n gnis`
 
-An alternative to the rolling update is doing a restart of the deployment. This doesn't delete the PV & PVC
+An alternative to the rolling update is uninstalling and reinstalling the release. This doesn't delete the PV & PVC data (the PV uses a `Retain` reclaim policy)
 
 ```
-kubectl delete deployment gnis
-kubectl apply -f templates/deployment/gnis-deployment.yaml
+helm uninstall gnis -n gnis
+helm install gnis helm/ -n gnis
 ```
 
 ##### Debugging GraphDB
-In the case that the GraphDB instance needs debugging and access to the GraphDB Workbench is needed, re-configure the gnis service to direct traffic to GraphDB (change `targetPort` to 7200). This will allow you to access the workbench; be sure to change the port back to the gnis-ld port before re-deploying.
+In the case that the GraphDB instance needs debugging and access to the GraphDB Workbench is needed, re-configure the gnis service to direct traffic to GraphDB (`helm upgrade gnis helm/ -n gnis --set service.targetPort=7200`). This will allow you to access the workbench; be sure to change the port back to the gnis-ld port before re-deploying.
 
 [![dataone_footer](https://www.dataone.org/sites/all/images/DataONE_LOGO.jpg)](https://www.dataone.org)

@@ -1,0 +1,140 @@
+# Default values for the gnis chart.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Public hostname of the deployment. Referenced by the ingress and, via tpl,
+# by container env values below.
+host: stage.gnis-ld.org
+
+replicaCount: 1
+
+# GHCR packages are private by default when first pushed. Either make the
+# packages public on GitHub, or create a registry secret and list it here:
+#   kubectl create secret docker-registry ghcr-pull -n gnis \
+#     --docker-server=ghcr.io --docker-username=<gh-user> --docker-password=<PAT with read:packages>
+# imagePullSecrets:
+#   - name: ghcr-pull
+imagePullSecrets: []
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# All containers run in a single pod and talk to each other over localhost
+graphdb:
+  image:
+    repository: ghcr.io/dataoneorg/gnis-graphdb
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 7200
+  readinessProbe:
+    initialDelaySeconds: 5400
+    periodSeconds: 10
+    timeoutSeconds: 1800
+    successThreshold: 1
+    failureThreshold: 3
+  resources: {}
+
+triplifier:
+  image:
+    repository: ghcr.io/dataoneorg/gnis-triplifier
+    tag: latest
+    pullPolicy: Always
+  command: ["npm", "run"]
+  args: ["update"]
+  port: 8890
+  # Env values are rendered through tpl, so they may reference chart values,
+  # e.g. "http://{{ .Values.host }}".
+  env:
+    PGUSER: "docker"
+    PGPASSWORD: "docker"
+    PGHOST: "localhost"
+    PGPORT: "5432"
+    PGDATABASE: "gis"
+    DEPLOYMENT_HOST: "http://{{ .Values.host }}"
+    GDBHOST: "http://localhost"
+    GDBPASSWORD: "GDBPASSWORD"
+  resources: {}
+
+gnisLd:
+  image:
+    repository: ghcr.io/dataoneorg/gnis-ld
+    tag: dev
+    pullPolicy: Always
+  port: 80
+  env:
+    PGUSER: "script"
+    PGPASSWORD: "pass"
+    PGHOST: "http://localhost"
+    PGPORT: "5432"
+    PGDATABASE: "gis"
+    BASE: "{{ .Values.host }}"
+    USGS_DATA_PATH: "/lod"
+    USGS_ENDPOINT_URL: "http://localhost:7200"
+  resources: {}
+
+persistence:
+  enabled: true
+  # Set to reuse a PVC created outside the chart; leaves PV/PVC creation off.
+  existingClaim: ""
+  storage: 75Gi
+  accessModes:
+    - ReadWriteMany
+  # Mounted into the graphdb and triplifier containers.
+  mountPath: /root
+  # Static CephFS PersistentVolume. Creating a PV is a cluster-admin
+  # operation; disable this and set existingClaim (or pre-create the PVC) if
+  # you are not installing as an admin.
+  pv:
+    enabled: true
+    csi:
+      driver: cephfs.csi.ceph.com
+      nodeStageSecretRef:
+        name: csi-cephfs-gnis-secret
+        namespace: ceph-csi-cephfs
+      volumeAttributes:
+        clusterID: "8aa4d4a0-a209-11ea-baf5-ffc787bfc812"
+        fsName: "cephfs"
+        staticVolume: "true"
+        rootPath: /volumes/k8s-dev-gnis-subvol-group/k8s-dev-gnis-subvol/30037f7e-314f-41d8-ad0a-b1ea4c838a34
+    reclaimPolicy: Retain
+
+service:
+  type: ClusterIP
+  port: 80
+  # Points at the gnis-ld webapp container. For GraphDB Workbench debugging,
+  # temporarily set this to 7200.
+  targetPort: 80
+  sessionAffinity: ClientIP
+  sessionAffinityTimeoutSeconds: 10800
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "$http_origin"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: true
+    secretName: ingress-nginx-tls-cert
+
+# Quarterly graph update: restarts the deployment, which re-runs the
+# triplifier's "npm run update". Creates a ServiceAccount/Role/RoleBinding so
+# kubectl inside the job is allowed to restart the deployment.
+updateCronJob:
+  enabled: false
+  # First day of every third month at midnight
+  schedule: "0 0 1 */3 *"
+  image:
+    repository: bitnami/kubectl
+    tag: latest
+    pullPolicy: IfNotPresent

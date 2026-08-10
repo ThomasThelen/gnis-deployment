@@ -1,0 +1,9 @@
+apiVersion: v2
+name: gnis
+description: Helm chart for the gnis-ld.org linked data stack
+type: application
+version: 0.1.0
+appVersion: "dev"
+home: https://gnis-ld.org
+sources:
+  - https://github.com/DataONEorg/gnis-deployment

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gnis.fullname" . }}
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "gnis.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gnis.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: graphdb
+          image: "{{ .Values.graphdb.image.repository }}:{{ .Values.graphdb.image.tag }}"
+          imagePullPolicy: {{ .Values.graphdb.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.graphdb.port }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - mountPath: {{ .Values.persistence.mountPath }}
+              name: gnis-volume
+          {{- end }}
+          readinessProbe:
+            {{- toYaml .Values.graphdb.readinessProbe | nindent 12 }}
+            tcpSocket:
+              port: {{ .Values.graphdb.port }}
+          {{- with .Values.graphdb.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+        - name: triplifier
+          image: "{{ .Values.triplifier.image.repository }}:{{ .Values.triplifier.image.tag }}"
+          imagePullPolicy: {{ .Values.triplifier.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.triplifier.command | nindent 12 }}
+          args:
+            {{- toYaml .Values.triplifier.args | nindent 12 }}
+          env:
+            {{- include "gnis.env" (dict "root" $ "env" .Values.triplifier.env) | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.triplifier.port }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - mountPath: {{ .Values.persistence.mountPath }}
+              name: gnis-volume
+          {{- end }}
+          {{- with .Values.triplifier.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+        - name: gnis-ld
+          image: "{{ .Values.gnisLd.image.repository }}:{{ .Values.gnisLd.image.tag }}"
+          imagePullPolicy: {{ .Values.gnisLd.image.pullPolicy }}
+          env:
+            {{- include "gnis.env" (dict "root" $ "env" .Values.gnisLd.env) | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.gnisLd.port }}
+          {{- with .Values.gnisLd.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: gnis-volume
+          persistentVolumeClaim:
+            claimName: {{ include "gnis.pvcName" . }}
+      {{- end }}

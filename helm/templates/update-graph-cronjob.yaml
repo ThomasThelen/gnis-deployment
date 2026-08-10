@@ -1,0 +1,62 @@
+{{- if .Values.updateCronJob.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "gnis.fullname" . }}-graph-update
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "gnis.fullname" . }}-graph-update
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ include "gnis.fullname" . | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "gnis.fullname" . }}-graph-update
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "gnis.fullname" . }}-graph-update
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "gnis.fullname" . }}-graph-update
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "gnis.fullname" . }}-graph-update
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.updateCronJob.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: {{ include "gnis.fullname" . }}-graph-update
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: graph-update
+              image: "{{ .Values.updateCronJob.image.repository }}:{{ .Values.updateCronJob.image.tag }}"
+              imagePullPolicy: {{ .Values.updateCronJob.image.pullPolicy }}
+              command:
+                - kubectl
+                - rollout
+                - restart
+                - deployment/{{ include "gnis.fullname" . }}
+          restartPolicy: OnFailure
+{{- end }}
