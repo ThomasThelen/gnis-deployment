@@ -4,7 +4,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 # Public hostname of the deployment. Referenced by the ingress and, via tpl,
-# by container env values below.
+# by env values below.
 host: stage.gnis-ld.org
 
 replicaCount: 1
@@ -17,74 +17,78 @@ replicaCount: 1
 #   - name: ghcr-pull
 imagePullSecrets: []
 
-strategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxSurge: 1
-    maxUnavailable: 0
+# One image serves both workloads: the GraphDB deployment runs it with the
+# image's default entrypoint (GraphDB only), and the ETL CronJob runs
+# etl.py from the same image. Built by usgs-triplifier's publish workflow.
+image:
+  repository: ghcr.io/dataoneorg/gnis-graphdb
+  tag: latest
+  pullPolicy: IfNotPresent
 
-# All containers run in a single pod and talk to each other over localhost
+# GraphDB holds an exclusive lock on its storage volume; never let two pods
+# overlap on it.
+strategy:
+  type: Recreate
+
 graphdb:
-  image:
-    repository: ghcr.io/dataoneorg/gnis-graphdb
-    tag: latest
-    pullPolicy: IfNotPresent
   port: 7200
   readinessProbe:
-    initialDelaySeconds: 5400
+    initialDelaySeconds: 30
     periodSeconds: 10
-    timeoutSeconds: 1800
+    timeoutSeconds: 5
     successThreshold: 1
-    failureThreshold: 3
-  resources: {}
+    failureThreshold: 6
+  # Serving needs far less memory than the ETL: GraphDB idles ~1-2Gi with the
+  # full dataset loaded.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      memory: 6Gi
 
-triplifier:
-  image:
-    repository: ghcr.io/dataoneorg/gnis-triplifier
-    tag: latest
-    pullPolicy: Always
-  command: ["npm", "run"]
-  args: ["update"]
-  port: 8890
-  # Env values are rendered through tpl, so they may reference chart values,
-  # e.g. "http://{{ .Values.host }}".
+# The ETL (download -> triplify -> import) runs as a CronJob against the
+# GraphDB service, sharing the PVC for the import directory. Trigger the
+# first load manually after install:
+#   kubectl -n <ns> create job --from=cronjob/<release>-etl initial-load
+etl:
+  enabled: true
+  # First day of every third month at midnight
+  schedule: "0 0 1 */3 *"
+  # Set false to skip the multi-GB download and reuse data already on the PVC
+  downloadData: true
+  # GraphDB admin password. Required unless existingSecret names a secret
+  # with a 'gdb-pass' key.
+  gdbPassword: ""
+  existingSecret: ""
   env:
-    PGUSER: "docker"
-    PGPASSWORD: "docker"
-    PGHOST: "localhost"
-    PGPORT: "5432"
-    PGDATABASE: "gis"
-    DEPLOYMENT_HOST: "http://{{ .Values.host }}"
-    GDBHOST: "http://localhost"
-    GDBPASSWORD: "GDBPASSWORD"
-  resources: {}
-
-gnisLd:
-  image:
-    repository: ghcr.io/dataoneorg/gnis-ld
-    tag: dev
-    pullPolicy: Always
-  port: 80
-  env:
-    PGUSER: "script"
-    PGPASSWORD: "pass"
-    PGHOST: "http://localhost"
-    PGPORT: "5432"
-    PGDATABASE: "gis"
-    BASE: "{{ .Values.host }}"
-    USGS_DATA_PATH: "/lod"
-    USGS_ENDPOINT_URL: "http://localhost:7200"
-  resources: {}
+    LOD_BASE: "http://{{ .Values.host }}/lod"
+    GEO_BASE: "http://{{ .Values.host }}/geometry"
+    GNIS_INPUT_DIRECTORY: "/app/data/geographic_names"
+    RDF_OUTPUT_DIRECTORY: "/app/data/output/gnis"
+    GRAPHDB_IMPORT_DIRECTORY: "/root/graphdb-import"
+    GDB_USER: "admin"
+    GDB_DEFAULT_PASS: "root"
+  backoffLimit: 2
+  # The triplifier builds each dataset's graph in memory before serializing;
+  # the features transform peaked at 16.2Gi at current dataset size
+  # (measured Aug 2026). This memory is only held while a job runs.
+  resources:
+    requests:
+      cpu: "1"
+      memory: 8Gi
+    limits:
+      memory: 20Gi
 
 persistence:
   enabled: true
   # Set to reuse a PVC created outside the chart; leaves PV/PVC creation off.
   existingClaim: ""
   storage: 75Gi
+  # Must be RWX (e.g. CephFS) when the ETL job can land on a different node
+  # than GraphDB; RWO works on single-node clusters (minikube).
   accessModes:
     - ReadWriteMany
-  # Mounted into the graphdb and triplifier containers.
-  mountPath: /root
   # Static CephFS PersistentVolume. Creating a PV is a cluster-admin
   # operation; disable this and set existingClaim (or pre-create the PVC) if
   # you are not installing as an admin.
@@ -105,9 +109,9 @@ persistence:
 service:
   type: ClusterIP
   port: 80
-  # Points at the gnis-ld webapp container. For GraphDB Workbench debugging,
-  # temporarily set this to 7200.
-  targetPort: 80
+  # GraphDB serves the SPARQL endpoint and Workbench directly; the Node.js
+  # webapp was retired with the Python rewrite of the triplifier.
+  targetPort: 7200
   sessionAffinity: ClientIP
   sessionAffinityTimeoutSeconds: 10800
 
@@ -126,15 +130,3 @@ ingress:
   tls:
     enabled: true
     secretName: ingress-nginx-tls-cert
-
-# Quarterly graph update: restarts the deployment, which re-runs the
-# triplifier's "npm run update". Creates a ServiceAccount/Role/RoleBinding so
-# kubectl inside the job is allowed to restart the deployment.
-updateCronJob:
-  enabled: false
-  # First day of every third month at midnight
-  schedule: "0 0 1 */3 *"
-  image:
-    repository: bitnami/kubectl
-    tag: latest
-    pullPolicy: IfNotPresent

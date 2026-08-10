@@ -1,0 +1,61 @@
+{{- if .Values.etl.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "gnis.fullname" . }}-etl
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.etl.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.etl.backoffLimit }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "gnis.name" . }}-etl
+            app.kubernetes.io/instance: {{ .Release.Name }}
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: etl
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              workingDir: /app
+              command: ["python3", "code/etl.py"]
+              env:
+                {{- include "gnis.env" (dict "root" $ "env" .Values.etl.env) | nindent 16 }}
+                - name: GRAPHDB_URL
+                  value: "http://{{ include "gnis.fullname" . }}:{{ .Values.service.port }}"
+                - name: DOWNLOAD_DATA
+                  value: {{ .Values.etl.downloadData | quote }}
+                - name: GDB_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ default (include "gnis.fullname" .) .Values.etl.existingSecret }}
+                      key: gdb-pass
+              {{- if .Values.persistence.enabled }}
+              volumeMounts:
+                - mountPath: /app/data
+                  name: gnis-volume
+                  subPath: app-data
+                - mountPath: /root/graphdb-import
+                  name: gnis-volume
+                  subPath: graphdb-import
+              {{- end }}
+              {{- with .Values.etl.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+          restartPolicy: Never
+          {{- if .Values.persistence.enabled }}
+          volumes:
+            - name: gnis-volume
+              persistentVolumeClaim:
+                claimName: {{ include "gnis.pvcName" . }}
+          {{- end }}
+{{- end }}

@@ -21,54 +21,27 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
+        # The image's default entrypoint starts GraphDB only; the ETL runs
+        # separately as the CronJob in etl-cronjob.yaml.
         - name: graphdb
-          image: "{{ .Values.graphdb.image.repository }}:{{ .Values.graphdb.image.tag }}"
-          imagePullPolicy: {{ .Values.graphdb.image.pullPolicy }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.graphdb.port }}
           {{- if .Values.persistence.enabled }}
           volumeMounts:
-            - mountPath: {{ .Values.persistence.mountPath }}
+            - mountPath: /opt/graphdb/dist/data
               name: gnis-volume
+              subPath: graphdb-data
+            - mountPath: /root/graphdb-import
+              name: gnis-volume
+              subPath: graphdb-import
           {{- end }}
           readinessProbe:
             {{- toYaml .Values.graphdb.readinessProbe | nindent 12 }}
             tcpSocket:
               port: {{ .Values.graphdb.port }}
           {{- with .Values.graphdb.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-
-        - name: triplifier
-          image: "{{ .Values.triplifier.image.repository }}:{{ .Values.triplifier.image.tag }}"
-          imagePullPolicy: {{ .Values.triplifier.image.pullPolicy }}
-          command:
-            {{- toYaml .Values.triplifier.command | nindent 12 }}
-          args:
-            {{- toYaml .Values.triplifier.args | nindent 12 }}
-          env:
-            {{- include "gnis.env" (dict "root" $ "env" .Values.triplifier.env) | nindent 12 }}
-          ports:
-            - containerPort: {{ .Values.triplifier.port }}
-          {{- if .Values.persistence.enabled }}
-          volumeMounts:
-            - mountPath: {{ .Values.persistence.mountPath }}
-              name: gnis-volume
-          {{- end }}
-          {{- with .Values.triplifier.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-
-        - name: gnis-ld
-          image: "{{ .Values.gnisLd.image.repository }}:{{ .Values.gnisLd.image.tag }}"
-          imagePullPolicy: {{ .Values.gnisLd.image.pullPolicy }}
-          env:
-            {{- include "gnis.env" (dict "root" $ "env" .Values.gnisLd.env) | nindent 12 }}
-          ports:
-            - containerPort: {{ .Values.gnisLd.port }}
-          {{- with .Values.gnisLd.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
