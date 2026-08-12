@@ -30,7 +30,10 @@ spec:
             - containerPort: {{ .Values.graphdb.port }}
           {{- if .Values.persistence.enabled }}
           volumeMounts:
-            - mountPath: /opt/graphdb/dist/data
+            # GraphDB 10 keeps repositories, settings, and logs under its
+            # home directory; mounting anywhere else leaves the live graph
+            # on ephemeral container storage.
+            - mountPath: /opt/graphdb/home
               name: gnis-volume
               subPath: graphdb-data
             - mountPath: /root/graphdb-import
