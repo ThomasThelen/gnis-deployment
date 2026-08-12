@@ -24,12 +24,17 @@ strategy:
 
 graphdb:
   port: 7200
+  # After an unclean shutdown GraphDB replays its transaction journal, which
+  # can take minutes on a multi-gigabyte repository. The generous
+  # failureThreshold keeps the pod merely unready (no traffic) for the whole
+  # recovery. Do NOT add a liveness probe here without a matching startup
+  # allowance: it would kill the pod mid-recovery and loop it.
   readinessProbe:
     initialDelaySeconds: 30
     periodSeconds: 10
     timeoutSeconds: 5
     successThreshold: 1
-    failureThreshold: 6
+    failureThreshold: 30
   # Serving needs far less memory than the ETL: GraphDB idles ~1-2Gi with the
   # full dataset loaded.
   resources:
