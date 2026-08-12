@@ -21,3 +21,27 @@ spec:
   persistentVolumeReclaimPolicy: {{ .Values.persistence.pv.reclaimPolicy }}
   volumeMode: Filesystem
 {{- end }}
+{{- if and .Values.persistence.enabled .Values.persistence.archives.pv.enabled (not .Values.persistence.archives.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "gnis.fullname" . }}-archives-pv
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.archives.accessModes | nindent 4 }}
+  capacity:
+    storage: {{ .Values.persistence.archives.storage }}
+  csi:
+    driver: {{ .Values.persistence.archives.pv.csi.driver }}
+    nodeStageSecretRef:
+      name: {{ .Values.persistence.archives.pv.csi.nodeStageSecretRef.name }}
+      namespace: {{ .Values.persistence.archives.pv.csi.nodeStageSecretRef.namespace }}
+    volumeAttributes:
+      {{- toYaml .Values.persistence.archives.pv.csi.volumeAttributes | nindent 6 }}
+    volumeHandle: {{ include "gnis.fullname" . }}-archives-pv
+  persistentVolumeReclaimPolicy: {{ .Values.persistence.archives.pv.reclaimPolicy }}
+  volumeMode: Filesystem
+{{- end }}

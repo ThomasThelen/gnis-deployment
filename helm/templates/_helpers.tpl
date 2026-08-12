@@ -57,6 +57,10 @@ chart-managed claim.
 {{- default (include "gnis.fullname" .) .Values.persistence.existingClaim }}
 {{- end }}
 
+{{- define "gnis.archivesPvcName" -}}
+{{- default (printf "%s-archives" (include "gnis.fullname" .)) .Values.persistence.archives.existingClaim }}
+{{- end }}
+
 {{/*
 Render a map of env vars, passing each value through tpl so values.yaml can
 reference other chart values.

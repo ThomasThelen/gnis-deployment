@@ -16,3 +16,22 @@ spec:
   volumeName: {{ include "gnis.fullname" . }}-pv
   {{- end }}
 {{- end }}
+{{- if and .Values.persistence.enabled (not .Values.persistence.archives.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "gnis.fullname" . }}-archives
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.archives.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.archives.storage }}
+  volumeMode: Filesystem
+  {{- if .Values.persistence.archives.pv.enabled }}
+  volumeName: {{ include "gnis.fullname" . }}-archives-pv
+  {{- end }}
+{{- end }}

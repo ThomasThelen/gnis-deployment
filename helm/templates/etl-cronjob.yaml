@@ -46,11 +46,12 @@ spec:
                 - mountPath: /root/graphdb-import
                   name: gnis-volume
                   subPath: graphdb-import
-                # Published release dumps. The webapp serves this same
-                # subPath at /archive (its USGS_ARCHIVE_PATH).
+                # Published release dumps, on their own volume: the archive
+                # is the irreplaceable system of record, unlike the
+                # rebuildable working state on the main volume. The webapp
+                # serves the same claim at /archive (its USGS_ARCHIVE_PATH).
                 - mountPath: /app/archive
-                  name: gnis-volume
-                  subPath: archives
+                  name: archives-volume
               {{- end }}
               {{- with .Values.etl.resources }}
               resources:
@@ -62,5 +63,8 @@ spec:
             - name: gnis-volume
               persistentVolumeClaim:
                 claimName: {{ include "gnis.pvcName" . }}
+            - name: archives-volume
+              persistentVolumeClaim:
+                claimName: {{ include "gnis.archivesPvcName" . }}
           {{- end }}
 {{- end }}

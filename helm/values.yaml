@@ -97,6 +97,32 @@ persistence:
         rootPath: /volumes/k8s-dev-gnis-subvol-group/k8s-dev-gnis-subvol/30037f7e-314f-41d8-ad0a-b1ea4c838a34
     reclaimPolicy: Retain
 
+  # The published release archive gets its own volume: everything on the
+  # main volume above can be rebuilt by re-running the ETL, but the archived
+  # dumps are the system of record for retention and lineage and cannot be
+  # regenerated. Keeping them apart means the main volume can be wiped or
+  # resized freely, and the backup policy only has to cover this claim.
+  # Point existingClaim at a Retain-class volume in production, or enable
+  # the static PV below with a dedicated subvolume rootPath.
+  archives:
+    existingClaim: ""
+    storage: 25Gi
+    accessModes:
+      - ReadWriteMany
+    pv:
+      enabled: false
+      csi:
+        driver: cephfs.csi.ceph.com
+        nodeStageSecretRef:
+          name: csi-cephfs-gnis-secret
+          namespace: ceph-csi-cephfs
+        volumeAttributes:
+          clusterID: "8aa4d4a0-a209-11ea-baf5-ffc787bfc812"
+          fsName: "cephfs"
+          staticVolume: "true"
+          rootPath: ""
+      reclaimPolicy: Retain
+
 # The public website: URI dereferencing, search/explore UI, the release
 # archive at /archive, and the /sparql proxy to GraphDB.
 webapp:

@@ -41,8 +41,7 @@ spec:
           volumeMounts:
             # Release dumps published by the ETL CronJob, served at /archive
             - mountPath: /app/archives
-              name: gnis-volume
-              subPath: archives
+              name: archives-volume
               readOnly: true
           {{- end }}
           readinessProbe:
@@ -57,9 +56,9 @@ spec:
           {{- end }}
       {{- if .Values.persistence.enabled }}
       volumes:
-        - name: gnis-volume
+        - name: archives-volume
           persistentVolumeClaim:
-            claimName: {{ include "gnis.pvcName" . }}
+            claimName: {{ include "gnis.archivesPvcName" . }}
       {{- end }}
 ---
 apiVersion: v1
