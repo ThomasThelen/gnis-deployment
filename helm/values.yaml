@@ -3,8 +3,10 @@
 nameOverride: ""
 fullnameOverride: ""
 
-# Public hostname of the deployment.
-host: stage.gnis-ld.org
+# Public hostname of the deployment. Every minted URI (LOD_BASE, GEO_BASE)
+# and public link derives from this, so a staging install must override it
+# (e.g. --set host=stage.gnis-ld.org) before its first ETL run.
+host: gnis-ld.org
 
 replicaCount: 1
 
