@@ -66,12 +66,16 @@ etl:
     GDB_USER: "admin"
     GDB_DEFAULT_PASS: "root"
   backoffLimit: 2
+  # Measured on the streaming pipeline: a full archive backfill (2.3M
+  # features, the largest workload) peaks at 6.4Gi; the quarterly run is
+  # smaller. The dedup digest set and the GeoNames pandas join are the
+  # biggest residents.
   resources:
     requests:
       cpu: "1"
-      memory: 8Gi
+      memory: 4Gi
     limits:
-      memory: 20Gi
+      memory: 10Gi
 
 persistence:
   enabled: true
