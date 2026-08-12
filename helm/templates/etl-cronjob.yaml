@@ -46,6 +46,11 @@ spec:
                 - mountPath: /root/graphdb-import
                   name: gnis-volume
                   subPath: graphdb-import
+                # Published release dumps. The webapp serves this same
+                # subPath at /archive (its USGS_ARCHIVE_PATH).
+                - mountPath: /app/archive
+                  name: gnis-volume
+                  subPath: archives
               {{- end }}
               {{- with .Values.etl.resources }}
               resources:

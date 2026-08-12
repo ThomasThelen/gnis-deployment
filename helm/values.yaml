@@ -67,12 +67,13 @@ etl:
     GNIS_INPUT_DIRECTORY: "/app/data/geographic_names"
     RDF_OUTPUT_DIRECTORY: "/app/data/output/gnis"
     GRAPHDB_IMPORT_DIRECTORY: "/root/graphdb-import"
+    # Location to write archives to
+    ARCHIVE_OUTPUT_DIRECTORY: "/app/archive"
+    # Public base for release download URLs in the dataset metadata
+    SITE_BASE: "https://{{ .Values.host }}"
     GDB_USER: "admin"
     GDB_DEFAULT_PASS: "root"
   backoffLimit: 2
-  # The triplifier builds each dataset's graph in memory before serializing;
-  # the features transform peaked at 16.2Gi at current dataset size
-  # (measured Aug 2026). This memory is only held while a job runs.
   resources:
     requests:
       cpu: "1"
