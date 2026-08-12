@@ -1,7 +1,6 @@
 The gnis stack has been deployed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
 
-GraphDB starts empty: data is loaded by the ETL job (download -> triplify ->
-import), which is scheduled as a CronJob ({{ .Values.etl.schedule }}). Kick off
+GraphDB needs to be populated with data from the ETL, which is scheduled as a CronJob ({{ .Values.etl.schedule }}). Kick off
 the first load now with:
 
   kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "gnis.fullname" . }}-etl initial-load
@@ -12,7 +11,7 @@ and watch it with:
 
 {{- if .Values.ingress.enabled }}
 
-The SPARQL endpoint and GraphDB Workbench will be available at:
+The website (with its /sparql proxy to GraphDB) will be available at:
 
   http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.host }}/
 {{- else }}

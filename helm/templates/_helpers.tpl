@@ -68,3 +68,13 @@ reference other chart values.
   value: {{ tpl $value $root | quote }}
 {{- end }}
 {{- end }}
+
+{{/*
+Selector labels for the webapp. Distinct from the GraphDB selector labels so
+the GraphDB service never routes to webapp pods.
+*/}}
+{{- define "gnis.webappSelectorLabels" -}}
+app: {{ include "gnis.name" . }}-webapp
+app.kubernetes.io/name: {{ include "gnis.name" . }}-webapp
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

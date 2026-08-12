@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gnis.fullname" . }}-webapp
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webapp
+spec:
+  replicas: {{ .Values.webapp.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gnis.webappSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gnis.webappSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: webapp
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: webapp
+          image: "{{ .Values.webapp.image.repository }}:{{ .Values.webapp.image.tag }}"
+          imagePullPolicy: {{ .Values.webapp.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.webapp.port }}
+          env:
+            {{- include "gnis.env" (dict "root" $ "env" .Values.webapp.env) | nindent 12 }}
+            - name: BASE
+              value: {{ .Values.host | quote }}
+            # The webapp's /sparql and /data proxies target this endpoint
+            - name: USGS_ENDPOINT_URL
+              value: "http://{{ include "gnis.fullname" . }}:{{ .Values.service.port }}/repositories/gnis-ld"
+            {{- if .Values.persistence.enabled }}
+            - name: USGS_ARCHIVE_PATH
+              value: /app/archives
+            {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            # Release dumps published by the ETL CronJob, served at /archive
+            - mountPath: /app/archives
+              name: gnis-volume
+              subPath: archives
+              readOnly: true
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.webapp.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.webapp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: gnis-volume
+          persistentVolumeClaim:
+            claimName: {{ include "gnis.pvcName" . }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gnis.fullname" . }}-webapp
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webapp
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.webapp.port }}
+  selector:
+    {{- include "gnis.webappSelectorLabels" . | nindent 4 }}
