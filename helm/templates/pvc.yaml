@@ -5,6 +5,9 @@ metadata:
   name: {{ include "gnis.fullname" . }}
   labels:
     {{- include "gnis.labels" . | nindent 4 }}
+  # helm uninstall leaves the claim, and its data, in place
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     {{- toYaml .Values.persistence.accessModes | nindent 4 }}
@@ -14,6 +17,8 @@ spec:
   volumeMode: Filesystem
   {{- if .Values.persistence.pv.enabled }}
   volumeName: {{ include "gnis.fullname" . }}-pv
+  {{- else if .Values.persistence.storageClassName }}
+  storageClassName: {{ .Values.persistence.storageClassName }}
   {{- end }}
 {{- end }}
 {{- if and .Values.persistence.enabled (not .Values.persistence.archives.existingClaim) }}
@@ -24,6 +29,9 @@ metadata:
   name: {{ include "gnis.fullname" . }}-archives
   labels:
     {{- include "gnis.labels" . | nindent 4 }}
+  # helm uninstall leaves the claim, and the release archive, in place
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     {{- toYaml .Values.persistence.archives.accessModes | nindent 4 }}
@@ -33,5 +41,7 @@ spec:
   volumeMode: Filesystem
   {{- if .Values.persistence.archives.pv.enabled }}
   volumeName: {{ include "gnis.fullname" . }}-archives-pv
+  {{- else }}
+  storageClassName: {{ required "Set persistence.archives.storageClassName to a ReadWriteMany StorageClass whose reclaimPolicy is Retain, or persistence.archives.existingClaim, or enable persistence.archives.pv" .Values.persistence.archives.storageClassName }}
   {{- end }}
 {{- end }}

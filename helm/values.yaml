@@ -71,10 +71,6 @@ etl:
     GDB_USER: "admin"
     GDB_DEFAULT_PASS: "root"
   backoffLimit: 2
-  # Measured on the streaming pipeline: a full archive backfill (2.3M
-  # features, the largest workload) peaks at 6.4Gi; the quarterly run is
-  # smaller. The dedup digest set and the GeoNames pandas join are the
-  # biggest residents.
   resources:
     requests:
       cpu: "1"
@@ -82,6 +78,8 @@ etl:
     limits:
       memory: 10Gi
 
+# Both claims below are annotated helm.sh/resource-policy: keep, so
+# helm uninstall leaves them and their data in place.
 persistence:
   enabled: true
   # Set to reuse a PVC created outside the chart.
@@ -91,7 +89,13 @@ persistence:
   # than GraphDB; RWO works on single-node clusters (minikube).
   accessModes:
     - ReadWriteMany
-  # Static CephFS PersistentVolume.
+  # StorageClass for a dynamically provisioned claim, used when pv.enabled
+  # is false. Empty means the cluster default.
+  storageClassName: ""
+  # Static CephFS PersistentVolume. The csi values identify one cluster's
+  # filesystem and one subvolume. A second install of the chart on the same
+  # cluster needs its own rootPath, or both installs share one GraphDB home
+  # directory.
   pv:
     enabled: true
     csi:
@@ -111,10 +115,16 @@ persistence:
   # dumps are the system of record for retention and lineage and cannot be
   # regenerated. Keeping them apart means the main volume can be wiped or
   # resized freely, and the backup policy only has to cover this claim.
-  # Point existingClaim at a Retain-class volume in production, or enable
-  # the static PV below with a dedicated subvolume rootPath.
+  # Set one of existingClaim, storageClassName or pv.enabled. existingClaim
+  # is a claim created outside the chart. storageClassName must be a
+  # ReadWriteMany class whose reclaimPolicy is Retain, so the archive is
+  # kept when the claim is deleted. pv.enabled needs a dedicated subvolume
+  # rootPath. The chart refuses to render with none of them set, because
+  # the cluster default class may provision a volume that is deleted with
+  # the claim or that cannot be mounted by two pods.
   archives:
     existingClaim: ""
+    storageClassName: ""
     storage: 25Gi
     accessModes:
       - ReadWriteMany

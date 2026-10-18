@@ -18,11 +18,13 @@ To install the chart (creating the `gnis` namespace if it doesn't exist),
 
 `helm install gnis helm/ -n gnis --create-namespace`
 
-By default the chart creates the static CephFS PersistentVolume and its PersistentVolumeClaim. Creating a PV is a cluster-admin operation; if you are installing as a non-admin user, have an administrator pre-create the PV/PVC and point the chart at the existing claim instead:
+The chart uses two volumes. The main volume (`persistence`) contains the GraphDB home directory and the ETL's working files, all of which an ETL run can rebuild. The archives volume (`persistence.archives`) contains the published release files, which cannot be rebuilt, so it must be a `ReadWriteMany` volume whose reclaim policy is `Retain`. Set one of `persistence.archives.existingClaim`, `persistence.archives.storageClassName` or `persistence.archives.pv.enabled` (with its own `rootPath`). The chart refuses to render without one.
 
-`helm install gnis helm/ -n gnis --set persistence.pv.enabled=false --set persistence.existingClaim=cephfs-gnis-pvc`
+By default the chart creates a static CephFS PersistentVolume for the main volume. Its `persistence.pv.csi` values identify one cluster's filesystem and one subvolume. A second install of the chart on the same cluster (for example a staging instance) needs its own `rootPath`, or both installs share one GraphDB home directory. Creating a PV is a cluster-admin operation. If you are installing as a non-admin user, have an administrator pre-create the claims and point the chart at them instead:
 
-To check for a valid PVC before installing, run `kubectl get pvc -n gnis` — a bound claim shows State 'Bound'.
+`helm install gnis helm/ -n gnis --set persistence.pv.enabled=false --set persistence.existingClaim=cephfs-gnis-pvc --set persistence.archives.existingClaim=cephfs-gnis-archives-pvc`
+
+To check for valid claims before installing, run `kubectl get pvc -n gnis`. A bound claim shows State 'Bound'.
 
 Common configuration lives in [helm/values.yaml](helm/values.yaml): the public hostname (`host`), container images, env vars, ingress/TLS settings, and the quarterly graph-update CronJob (`updateCronJob.enabled`, off by default).
 
@@ -61,7 +63,7 @@ For debugging networking, the following are useful
 
 `kubectl describe service/gnis -n gnis`
 
-An alternative to the rolling update is uninstalling and reinstalling the release. This doesn't delete the PV & PVC data (the PV uses a `Retain` reclaim policy)
+An alternative to the rolling update is uninstalling and reinstalling the chart. Both PersistentVolumeClaims and the chart's PersistentVolumes are annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves them and their data in place and the reinstall binds to them again. A claim created outside the chart is never touched by Helm.
 
 ```
 helm uninstall gnis -n gnis
