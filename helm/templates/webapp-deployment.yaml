@@ -30,7 +30,7 @@ spec:
             {{- include "gnis.env" (dict "root" $ "env" .Values.webapp.env) | nindent 12 }}
             - name: BASE
               value: {{ .Values.host | quote }}
-            # The webapp's /sparql and /data proxies target this endpoint
+            # The webapp's /sparql proxy targets this endpoint
             - name: USGS_ENDPOINT_URL
               value: "http://{{ include "gnis.fullname" . }}:{{ .Values.service.port }}/repositories/gnis-ld"
             {{- if .Values.persistence.enabled }}

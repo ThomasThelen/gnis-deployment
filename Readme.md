@@ -8,36 +8,38 @@ Helm chart for deploying the gnis-ld project to Kubernetes.
 
 ## Architecture
 
-The deployment takes place as a single deployment with a single pod, which in turn contains a container for each stack component. For example, there's a container for the triplifier, for the webapp, etc. The webapp is the only pod that communicates with the outside world and has it's port mapping specified in the gnis-service.yaml file. The other containers (triplifier, GraphDB) communicate though `localhost` instead of services _because they're in the same pod_.
-
-Because all of the containers exist in the same pod, each container can be accessed from another with `localhost:port`. For example, the webapp gnis-ld can communicate with GraphDB via `localhost:7200`. This is opposed to a service based communication model, which would be appropriate if the containers were in separate pods. This is exploited in the reverse proxy logic in the webapp, where GraphDB is contacted from the webapp.
+The stack is a single Deployment with one pod, and the pod has a container for each stack component. For example there is one container for the triplifier and one for the webapp, all in the same pod. Because all of the containers are in the same pod, each container is reachable from another at `localhost:port`. For example, the webapp reaches GraphDB at `localhost:7200`. A service-based communication model would be appropriate if the containers were in separate pods.
 
 ## Deployment
 
-To install the chart (creating the `gnis` namespace if it doesn't exist),
+To install the chart while creating the `gnis` namespace if it doesn't exist run,
 
-`helm install gnis helm/ -n gnis --create-namespace`
+`helm install gnis helm/ -n gnis --create-namespace --set etl.gdbPassword=<password> --wait --timeout 3h`
 
-The chart uses two volumes. The main volume (`persistence`) contains the GraphDB home directory and the ETL's working files, all of which an ETL run can rebuild. The archives volume (`persistence.archives`) contains the published release files, which cannot be rebuilt, so it must be a `ReadWriteMany` volume whose reclaim policy is `Retain`. Set one of `persistence.archives.existingClaim`, `persistence.archives.storageClassName` or `persistence.archives.pv.enabled` (with its own `rootPath`). The chart refuses to render without one.
+The ETL is run once by a post-install Job, and `helm install` returns when that run has finished. In short, the pod won't be ready until the triples have been generated and loaded into GraphDB for the first time. In that run, the legacy releases listed in `etl.env.LEGACY_RELEASES` (the 2021-08-25 legacy dump by default) are built, then the current release is built and loaded into GraphDB. After that the ETL is run by the CronJob on the `etl.schedule`. In each scheduled run, a legacy release whose release file is missing from the archives volume is built before the current release. Set `etl.loadOnInstall=false` to install without the post-install Job.
 
-By default the chart creates a static CephFS PersistentVolume for the main volume. Its `persistence.pv.csi` values identify one cluster's filesystem and one subvolume. A second install of the chart on the same cluster (for example a staging instance) needs its own `rootPath`, or both installs share one GraphDB home directory. Creating a PV is a cluster-admin operation. If you are installing as a non-admin user, have an administrator pre-create the claims and point the chart at them instead:
+The images are published to `ghcr.io/dataoneorg/gnis-graphdb` (ETL and GraphDB) and `ghcr.io/dataoneorg/gnis-ld` (website) by the `docker-publish` workflow of each repository. Each image is tagged `latest` from the main branch and `sha-<commit>` for every commit. Set `image.tag` and `webapp.image.tag` to a `sha-` tag to deploy a specific commit.
+
+Two volumes are mounted into the pods. The main volume (`persistence`) contains the GraphDB home directory and the ETL's working files, all of which can be rebuilt by re-running the ETL. The archives volume (`persistence.archives`) contains the published release files, which cannot be rebuilt, so it must be a `ReadWriteMany` volume whose reclaim policy is `Retain`. Set one of `persistence.archives.existingClaim`, `persistence.archives.storageClassName` or `persistence.archives.pv.enabled` (with its own `rootPath`). Without one of them, Helm fails to render the chart.
+
+By default a static CephFS PersistentVolume is created for the main volume. Its `persistence.pv.csi` values identify one cluster's filesystem and one subvolume. Set a different `rootPath` for a second install of the chart on the same cluster (for example a staging instance). Otherwise the single GraphDB home directory gets shared by both installs.
 
 `helm install gnis helm/ -n gnis --set persistence.pv.enabled=false --set persistence.existingClaim=cephfs-gnis-pvc --set persistence.archives.existingClaim=cephfs-gnis-archives-pvc`
 
-To check for valid claims before installing, run `kubectl get pvc -n gnis`. A bound claim shows State 'Bound'.
+To check for valid claims before installing, run `kubectl get pvc -n gnis`. Bound claims have State values of 'Bound'.
 
-Common configuration lives in [helm/values.yaml](helm/values.yaml): the public hostname (`host`), container images, env vars, ingress/TLS settings, and the quarterly graph-update CronJob (`updateCronJob.enabled`, off by default).
+Common configuration is in [helm/values.yaml](helm/values.yaml). The public hostname (`host`), container images, env vars, ingress/TLS settings, and the schedule of the quarterly ETL CronJob (`etl.schedule`) are set there.
 
 To apply configuration changes,
 
 `helm upgrade gnis helm/ -n gnis`
 
-To perform a rolling update (this also re-runs the triplifier's graph update),
+To perform a rolling update (the triplifier's graph update is also re-run),
 
  `kubectl rollout restart deployment gnis`
 
 #### Debugging
-There are a few commands that will come in handy while debugging the stack.
+The following commands are useful when debugging the stack.
 
 Get the logs of a gnis container,
 
@@ -47,14 +49,6 @@ If a container has restarted, the previous logs can be obtained with the `--prev
 
 `kubectl logs --previous <pod> <container-name>`
 
-To get a shell in a running pod, run
-
-`kubectl exec -i -t <pod> bash`
-
-To get a shell in a container, inside a pod, run
-
-`kubectl exec -n gnis -it pod/<pod-name> -c <container-name> -- /bin/sh`
-
 For debugging networking, the following are useful
 
 `kubectl describe virtualserver -n nginx-ingress`
@@ -63,7 +57,7 @@ For debugging networking, the following are useful
 
 `kubectl describe service/gnis -n gnis`
 
-An alternative to the rolling update is uninstalling and reinstalling the chart. Both PersistentVolumeClaims and the chart's PersistentVolumes are annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves them and their data in place and the reinstall binds to them again. A claim created outside the chart is never touched by Helm.
+An alternative to the rolling update is uninstalling and reinstalling the chart. Both PersistentVolumeClaims and the chart's PersistentVolumes are annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves them and their data in place and they are bound again on reinstall. A claim created outside the chart is never deleted or modified by Helm.
 
 ```
 helm uninstall gnis -n gnis
@@ -71,6 +65,6 @@ helm install gnis helm/ -n gnis
 ```
 
 ##### Debugging GraphDB
-In the case that the GraphDB instance needs debugging and access to the GraphDB Workbench is needed, re-configure the gnis service to direct traffic to GraphDB (`helm upgrade gnis helm/ -n gnis --set service.targetPort=7200`). This will allow you to access the workbench; be sure to change the port back to the gnis-ld port before re-deploying.
+To reach the GraphDB Workbench, re-configure the gnis service to direct traffic to GraphDB (`helm upgrade gnis helm/ -n gnis --set service.targetPort=7200`). Change the port back to the gnis-ld port before re-deploying.
 
 [![dataone_footer](https://www.dataone.org/sites/all/images/DataONE_LOGO.jpg)](https://www.dataone.org)

@@ -1,13 +1,19 @@
-The gnis stack has been deployed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+The gnis stack is deployed as Helm release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
 
-GraphDB needs to be populated with data from the ETL, which is scheduled as a CronJob ({{ .Values.etl.schedule }}). Kick off
-the first load now with:
+GraphDB is populated by the ETL, which is scheduled as a CronJob ({{ .Values.etl.schedule }}).
+{{- if .Values.etl.loadOnInstall }}
+The first releases were published by the install Job. Its logs are read with:
+
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "gnis.fullname" . }}-etl-install
+{{- else }}
+Start the first load now with:
 
   kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "gnis.fullname" . }}-etl initial-load
 
 and watch it with:
 
   kubectl -n {{ .Release.Namespace }} logs -f job/initial-load
+{{- end }}
 
 {{- if .Values.ingress.enabled }}
 
@@ -16,7 +22,7 @@ The website (with its /sparql proxy to GraphDB) will be available at:
   http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.host }}/
 {{- else }}
 
-The ingress is disabled; reach GraphDB through the service:
+The ingress is disabled. Reach GraphDB through the service:
 
   kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "gnis.fullname" . }} 7200:{{ .Values.service.port }}
 {{- end }}

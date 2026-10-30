@@ -82,3 +82,59 @@ app: {{ include "gnis.name" . }}-webapp
 app.kubernetes.io/name: {{ include "gnis.name" . }}-webapp
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Pod spec of the ETL, shared by the CronJob and the install Job.
+*/}}
+{{- define "gnis.etlPodSpec" -}}
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+containers:
+  - name: etl
+    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+    imagePullPolicy: {{ .Values.image.pullPolicy }}
+    workingDir: /app
+    command: ["python3", "code/etl.py"]
+    env:
+      {{- include "gnis.env" (dict "root" $ "env" .Values.etl.env) | nindent 6 }}
+      - name: GRAPHDB_URL
+        value: "http://{{ include "gnis.fullname" . }}:{{ .Values.service.port }}"
+      - name: DOWNLOAD_DATA
+        value: {{ .Values.etl.downloadData | quote }}
+      - name: GDB_PASS
+        valueFrom:
+          secretKeyRef:
+            name: {{ default (include "gnis.fullname" .) .Values.etl.existingSecret }}
+            key: gdb-pass
+    {{- if .Values.persistence.enabled }}
+    volumeMounts:
+      - mountPath: /app/data
+        name: gnis-volume
+        subPath: app-data
+      - mountPath: /root/graphdb-import
+        name: gnis-volume
+        subPath: graphdb-import
+      # Published release dumps, on their own volume: the archive
+      # is the irreplaceable system of record, unlike the
+      # rebuildable working state on the main volume. The webapp
+      # serves the same claim at /archive (its USGS_ARCHIVE_PATH).
+      - mountPath: /app/archive
+        name: archives-volume
+    {{- end }}
+    {{- with .Values.etl.resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+restartPolicy: Never
+{{- if .Values.persistence.enabled }}
+volumes:
+  - name: gnis-volume
+    persistentVolumeClaim:
+      claimName: {{ include "gnis.pvcName" . }}
+  - name: archives-volume
+    persistentVolumeClaim:
+      claimName: {{ include "gnis.archivesPvcName" . }}
+{{- end }}
+{{- end }}

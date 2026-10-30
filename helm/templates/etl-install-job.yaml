@@ -1,0 +1,25 @@
+{{- if and .Values.etl.enabled .Values.etl.loadOnInstall }}
+# Publishes the first releases when the chart is installed. Helm waits for
+# this Job to finish, so helm install needs a --timeout longer than one ETL
+# run. The Job is not created on upgrades.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "gnis.fullname" . }}-etl-install
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install
+    # The finished Job is kept so its logs can be read. It is deleted when
+    # the chart is installed again.
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.etl.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "gnis.name" . }}-etl
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- include "gnis.etlPodSpec" . | trim | nindent 6 }}
+{{- end }}

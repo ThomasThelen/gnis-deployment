@@ -45,13 +45,16 @@ graphdb:
       memory: 6Gi
 
 # The ETL (download -> triplify -> import) runs as a CronJob against the
-# GraphDB service, sharing the PVC for the import directory. Trigger the
-# first load manually after install:
-#   kubectl -n <ns> create job --from=cronjob/<release>-etl initial-load
+# GraphDB service, sharing the PVC for the import directory. Each run first
+# builds the legacy releases in LEGACY_RELEASES that are missing from the
+# archive volume.
 etl:
   enabled: true
   # First day of every third month at midnight
   schedule: "0 0 1 */3 *"
+  # Run the ETL once when the chart is installed, as a post-install hook.
+  # helm install waits for it, so pass --timeout 3h.
+  loadOnInstall: true
   # Set false to skip the remote data download and reuse data already on the PVC
   downloadData: true
   # GraphDB admin password. Required unless existingSecret names a secret
@@ -68,6 +71,8 @@ etl:
     ARCHIVE_OUTPUT_DIRECTORY: "/app/archive"
     # Public base for release download URLs in the dataset metadata
     SITE_BASE: "https://{{ .Values.host }}"
+    # Comma-separated dates of the legacy dumps published as releases
+    LEGACY_RELEASES: "2021-08-25"
     GDB_USER: "admin"
     GDB_DEFAULT_PASS: "root"
   backoffLimit: 2
@@ -161,7 +166,7 @@ webapp:
       memory: 512Mi
 
 # GraphDB's in-cluster service, used by the ETL job and the webapp's
-# /sparql and /data proxies. Not exposed publicly.
+# /sparql proxy. Not exposed publicly.
 service:
   type: ClusterIP
   port: 80

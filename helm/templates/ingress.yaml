@@ -25,8 +25,6 @@ spec:
             pathType: {{ .Values.ingress.pathType }}
             backend:
               service:
-                # The webapp fronts everything; it proxies /sparql and /data
-                # to the GraphDB service internally.
                 name: {{ include "gnis.fullname" . }}-webapp
                 port:
                   number: 80
