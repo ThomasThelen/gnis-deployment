@@ -8,7 +8,16 @@ Helm chart for deploying the gnis-ld project to Kubernetes.
 
 ## Architecture
 
-The stack is a single Deployment with one pod, and the pod has a container for each stack component. For example there is one container for the triplifier and one for the webapp, all in the same pod. Because all of the containers are in the same pod, each container is reachable from another at `localhost:port`. For example, the webapp reaches GraphDB at `localhost:7200`. A service-based communication model would be appropriate if the containers were in separate pods.
+The chart creates these workloads in the release's namespace.
+
+| Workload | Kind | Contents |
+|---|---|---|
+| `gnis` | Deployment | GraphDB, exposed inside the cluster by the `gnis` Service on port 80 |
+| `gnis-webapp` | Deployment | The gnis-ld.org website, exposed by the `gnis-webapp` Service and the Ingress for `host` |
+| `gnis-etl-install` | Job | The first ETL run, created by a post-install hook |
+| `gnis-etl` | CronJob | The scheduled ETL runs, on `etl.schedule` |
+
+The website sends SPARQL queries to GraphDB through the `gnis` Service, and the ETL loads releases through it. The ETL pods and GraphDB share the main volume, and the ETL writes the release files to the archives volume, which the website serves at `/archive`.
 
 ## Deployment
 
@@ -16,9 +25,9 @@ To install the chart while creating the `gnis` namespace if it doesn't exist run
 
 `helm install gnis helm/ -n gnis --create-namespace --set etl.gdbPassword=<password> --wait --timeout 3h`
 
-The ETL is run once by a post-install Job, and `helm install` returns when that run has finished. In short, the pod won't be ready until the triples have been generated and loaded into GraphDB for the first time. In that run, the legacy releases listed in `etl.env.LEGACY_RELEASES` (the 2021-08-25 legacy dump by default) are built, then the current release is built and loaded into GraphDB. After that the ETL is run by the CronJob on the `etl.schedule`. In each scheduled run, a legacy release whose release file is missing from the archives volume is built before the current release. Set `etl.loadOnInstall=false` to install without the post-install Job.
+The ETL is run once by a post-install Job, and `helm install` returns when that run has finished. In short, the pod won't be ready until the triples have been generated and loaded into GraphDB for the first time. In that run, the legacy release is built from USGS's final legacy dump, from 2021-08-25, then the current release is built and loaded into GraphDB. Set `etl.env.PUBLISH_LEGACY_RELEASE` to `"false"` to skip the legacy release. After that the ETL is run by the CronJob on the `etl.schedule`. In each scheduled run, a legacy release whose release file is missing from the archives volume is built before the current release. Set `etl.loadOnInstall=false` to install without the post-install Job.
 
-The images are published to `ghcr.io/dataoneorg/gnis-graphdb` (ETL and GraphDB) and `ghcr.io/dataoneorg/gnis-ld` (website) by the `docker-publish` workflow of each repository. Each image is tagged `latest` from the main branch and `sha-<commit>` for every commit. Set `image.tag` and `webapp.image.tag` to a `sha-` tag to deploy a specific commit.
+The images are published to `ghcr.io/dataoneorg/gnis-graphdb` (ETL and GraphDB) and `ghcr.io/dataoneorg/gnis-ld` (website) by the `docker-publish` workflow of each repository. Each image is tagged `latest` from the main branch and `sha-<commit>` for every commit. Set `image.tag` and `webapp.image.tag` to a `sha-` tag in production, so every node runs the same commit. With the default `latest` tag, the images are pulled again whenever a pod starts.
 
 Two volumes are mounted into the pods. The main volume (`persistence`) contains the GraphDB home directory and the ETL's working files, all of which can be rebuilt by re-running the ETL. The archives volume (`persistence.archives`) contains the published release files, which cannot be rebuilt, so it must be a `ReadWriteMany` volume whose reclaim policy is `Retain`. Set one of `persistence.archives.existingClaim`, `persistence.archives.storageClassName` or `persistence.archives.pv.enabled` (with its own `rootPath`). Without one of them, Helm fails to render the chart.
 
@@ -34,9 +43,13 @@ To apply configuration changes,
 
 `helm upgrade gnis helm/ -n gnis`
 
-To perform a rolling update (the triplifier's graph update is also re-run),
+To restart GraphDB and the website, for example to pull a new `latest` image,
 
- `kubectl rollout restart deployment gnis`
+`kubectl rollout restart deployment gnis gnis-webapp -n gnis`
+
+The restart does not run the ETL. To run the ETL outside its schedule, create a Job from the CronJob,
+
+`kubectl create job --from=cronjob/gnis-etl gnis-etl-manual -n gnis`
 
 #### Debugging
 The following commands are useful when debugging the stack.
@@ -57,7 +70,7 @@ For debugging networking, the following are useful
 
 `kubectl describe service/gnis -n gnis`
 
-An alternative to the rolling update is uninstalling and reinstalling the chart. Both PersistentVolumeClaims and the chart's PersistentVolumes are annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves them and their data in place and they are bound again on reinstall. A claim created outside the chart is never deleted or modified by Helm.
+The chart can also be uninstalled and installed again, which runs the install Job again. Both PersistentVolumeClaims and the chart's PersistentVolumes are annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves them and their data in place and they are bound again on reinstall. A claim created outside the chart is never deleted or modified by Helm.
 
 ```
 helm uninstall gnis -n gnis

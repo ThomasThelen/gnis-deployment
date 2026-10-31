@@ -15,13 +15,9 @@ imagePullSecrets: []
 image:
   repository: ghcr.io/dataoneorg/gnis-graphdb
   tag: latest
-  pullPolicy: IfNotPresent
-
-# GraphDB holds an exclusive lock on its storage volume; never let two pods
-# overlap on it.
+  pullPolicy: Always
 strategy:
   type: Recreate
-
 graphdb:
   port: 7200
   # After an unclean shutdown GraphDB replays its transaction journal, which
@@ -47,8 +43,8 @@ graphdb:
 
 # The ETL (download -> triplify -> import) runs as a CronJob against the
 # GraphDB service, sharing the PVC for the import directory. Each run first
-# builds the legacy releases in LEGACY_RELEASES that are missing from the
-# archive volume.
+# builds the legacy release when PUBLISH_LEGACY_RELEASE is true and its
+# release file is missing from the archive volume.
 etl:
   enabled: true
   # First day of every third month at midnight
@@ -72,11 +68,17 @@ etl:
     ARCHIVE_OUTPUT_DIRECTORY: "/app/archive"
     # Public base for release download URLs in the dataset metadata
     SITE_BASE: "https://{{ .Values.host }}"
-    # Comma-separated dates of the legacy dumps published as releases
-    LEGACY_RELEASES: "2021-08-25"
+    # Whether USGS's final legacy dump, from 2021-08-25, is published as
+    # release 210825. Features dropped by USGS since then are retained from it.
+    PUBLISH_LEGACY_RELEASE: "true"
     GDB_USER: "admin"
     GDB_DEFAULT_PASS: "root"
   backoffLimit: 2
+  # Time limit of one ETL Job in seconds, across all of its retries. A Job
+  # past the limit is failed and its pod stopped. Without a limit, a run
+  # that hangs stops every later scheduled run, because the CronJob's
+  # concurrencyPolicy is Forbid.
+  activeDeadlineSeconds: 21600
   resources:
     requests:
       cpu: "1"
@@ -84,8 +86,6 @@ etl:
     limits:
       memory: 10Gi
 
-# Both claims below are annotated helm.sh/resource-policy: keep, so
-# helm uninstall leaves them and their data in place.
 persistence:
   enabled: true
   # Set to reuse a PVC created outside the chart.
@@ -116,13 +116,12 @@ persistence:
         rootPath: /volumes/k8s-dev-gnis-subvol-group/k8s-dev-gnis-subvol/30037f7e-314f-41d8-ad0a-b1ea4c838a34
     reclaimPolicy: Retain
 
-  # The published release archive gets its own volume: everything on the
+  # The published release archive is stored on its own volume. Everything on the
   # main volume above can be rebuilt by re-running the ETL, but the archived
   # dumps are the system of record for retention and lineage and cannot be
-  # regenerated. Keeping them apart means the main volume can be wiped or
-  # resized freely, and the backup policy only has to cover this claim.
-  # Set one of existingClaim, storageClassName or pv.enabled. existingClaim
-  # is a claim created outside the chart. storageClassName must be a
+  # regenerated when source data is deleted. Keeping them apart means the
+  # main volume can be wiped or resized freely, and the backup policy only has to cover
+  # this claim. existingClaim is a claim created outside the chart. storageClassName must be a
   # ReadWriteMany class whose reclaimPolicy is Retain, so the archive is
   # kept when the claim is deleted. pv.enabled needs a dedicated subvolume
   # rootPath. The chart refuses to render with none of them set, because
@@ -148,14 +147,13 @@ persistence:
           rootPath: ""
       reclaimPolicy: Retain
 
-# The public website: URI dereferencing, search/explore UI, the release
-# archive at /archive, and the /sparql proxy to GraphDB.
+# gnis-ld.org
 webapp:
   replicaCount: 1
   image:
     repository: ghcr.io/dataoneorg/gnis-ld
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   # The Express server's listen port.
   port: 3006
   env: {}
@@ -166,8 +164,7 @@ webapp:
     limits:
       memory: 512Mi
 
-# GraphDB's in-cluster service, used by the ETL job and the webapp's
-# /sparql proxy. Not exposed publicly.
+# GraphDB
 service:
   type: ClusterIP
   port: 80
