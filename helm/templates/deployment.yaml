@@ -28,6 +28,9 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.graphdb.port }}
+          env:
+            - name: GDB_HEAP_SIZE
+              value: {{ .Values.graphdb.heapSize | quote }}
           {{- if .Values.persistence.enabled }}
           volumeMounts:
             # GraphDB 10 keeps repositories, settings, and logs under its
