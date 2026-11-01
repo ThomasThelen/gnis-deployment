@@ -74,6 +74,11 @@ etl:
     GDB_USER: "admin"
     GDB_DEFAULT_PASS: "root"
   backoffLimit: 2
+  # Restart GraphDB after each successful ETL run. GraphDB keeps memory from
+  # the import in its heap, and queries with GROUP BY or DISTINCT, such as
+  # the website's search, fail until it restarts. Queries fail for the
+  # minute or two GraphDB takes to restart.
+  restartGraphdb: true
   # Time limit of one ETL Job in seconds, across all of its retries. A Job
   # past the limit is failed and its pod stopped. Without a limit, a run
   # that hangs stops every later scheduled run, because the CronJob's

@@ -1,0 +1,37 @@
+{{- if and .Values.etl.enabled .Values.etl.restartGraphdb }}
+# Lets the ETL pods restart the GraphDB Deployment after an import, and
+# nothing else
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "gnis.fullname" . }}-etl
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "gnis.fullname" . }}-etl
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ include "gnis.fullname" . | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "gnis.fullname" . }}-etl
+  labels:
+    {{- include "gnis.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "gnis.fullname" . }}-etl
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "gnis.fullname" . }}-etl
+    namespace: {{ .Release.Namespace }}
+{{- end }}

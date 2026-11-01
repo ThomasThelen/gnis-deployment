@@ -84,14 +84,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Pod spec of the ETL, shared by the CronJob and the install Job.
+Pod spec of the ETL, shared by the CronJob and the install Job. With
+etl.restartGraphdb, the ETL runs as an init container and the restart-graphdb
+container restarts the GraphDB Deployment after the ETL succeeds. GraphDB
+keeps memory from a large import in its heap, and queries with GROUP BY or
+DISTINCT fail until it restarts.
 */}}
 {{- define "gnis.etlPodSpec" -}}
 {{- with .Values.imagePullSecrets }}
 imagePullSecrets:
   {{- toYaml . | nindent 2 }}
 {{- end }}
+{{- if .Values.etl.restartGraphdb }}
+serviceAccountName: {{ include "gnis.fullname" . }}-etl
+initContainers:
+{{- else }}
 containers:
+{{- end }}
   - name: etl
     image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
     imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -127,6 +136,39 @@ containers:
     resources:
       {{- toYaml . | nindent 6 }}
     {{- end }}
+{{- if .Values.etl.restartGraphdb }}
+containers:
+  # Restarts GraphDB the same way as kubectl rollout restart, by changing the
+  # restartedAt annotation of the Deployment's pod template through the
+  # Kubernetes API
+  - name: restart-graphdb
+    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+    imagePullPolicy: {{ .Values.image.pullPolicy }}
+    env:
+      - name: GRAPHDB_DEPLOYMENT
+        value: {{ include "gnis.fullname" . }}
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        SA=/var/run/secrets/kubernetes.io/serviceaccount
+        NAMESPACE="$(cat "$SA/namespace")"
+        NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        curl -sSf -o /dev/null -X PATCH \
+          --cacert "$SA/ca.crt" \
+          -H "Authorization: Bearer $(cat "$SA/token")" \
+          -H "Content-Type: application/strategic-merge-patch+json" \
+          -d "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"kubectl.kubernetes.io/restartedAt\":\"$NOW\"}}}}}" \
+          "https://kubernetes.default.svc/apis/apps/v1/namespaces/$NAMESPACE/deployments/$GRAPHDB_DEPLOYMENT"
+        echo "Restarted deployment $GRAPHDB_DEPLOYMENT at $NOW"
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        memory: 64Mi
+{{- end }}
 restartPolicy: Never
 {{- if .Values.persistence.enabled }}
 volumes:

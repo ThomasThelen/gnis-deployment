@@ -51,7 +51,57 @@ The restart does not run the ETL. To run the ETL outside its schedule, create a 
 
 `kubectl create job --from=cronjob/gnis-etl gnis-etl-manual -n gnis`
 
-#### Debugging
+### Locally with Minikube
+
+```bash
+minikube start --driver=vfkit --memory=24g --cpus=8 --disk-size=120g
+minikube ssh -- sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+minikube ssh -- sudo ip link set eth0 mtu 1280
+minikube ssh -- sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+minikube addons enable ingress
+kubectl -n ingress-nginx wait --for=condition=ready pod -l app.kubernetes.io/component=controller --timeout=10m
+
+kubectl apply -f - <<'EOF'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: retain
+provisioner: k8s.io/minikube-hostpath
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+EOF
+
+minikube image build -t ghcr.io/dataoneorg/gnis-graphdb:local -f docker/Dockerfile usgs-triplifier
+minikube image build -t ghcr.io/dataoneorg/gnis-ld:local gnis-ld.org
+
+helm install gnis gnis-deployment/helm -n gnis --create-namespace \
+  --set image.tag=local --set image.pullPolicy=Never \
+  --set webapp.image.tag=local --set webapp.image.pullPolicy=Never \
+  --set persistence.pv.enabled=false \
+  --set persistence.storageClassName=retain \
+  --set "persistence.accessModes={ReadWriteOnce}" \
+  --set persistence.archives.storageClassName=retain \
+  --set "persistence.archives.accessModes={ReadWriteOnce}" \
+  --set ingress.tls.enabled=false \
+  --set etl.gdbPassword="$(openssl rand -hex 16)" \
+  --wait --timeout 6h
+
+```
+
+The check the status of the run,
+
+```bash
+kubectl -n gnis logs -f job/gnis-etl-install
+```
+
+Once complete, port forward and check localhost,
+
+```bash
+kubectl -n gnis port-forward svc/gnis-webapp 8080:80
+open http://localhost:8080/
+```
+
+### Debugging
 The following commands are useful when debugging the stack.
 
 Get the logs of a gnis container,
