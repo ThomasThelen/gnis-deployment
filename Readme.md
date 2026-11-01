@@ -53,6 +53,8 @@ The restart does not run the ETL. To run the ETL outside its schedule, create a 
 
 ### Locally with Minikube
 
+Create a new folder and clone this repository, gnis-ld.org, and the triplifier into it. Run the following commands from the new, root folder.
+
 ```bash
 minikube start --driver=vfkit --memory=24g --cpus=8 --disk-size=120g
 minikube ssh -- sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
